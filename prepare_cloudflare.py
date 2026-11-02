@@ -1,4 +1,4 @@
-"""Guardian Cloudflare update 2.5.1: explicit mute targets and precise protection errors.
+"""Guardian Cloudflare update 2.5.2: verified username targets; no wrong reply fallback.
 
 Keep the original companion ZIP. This file overlays the updated Python sources.
 
@@ -77,7 +77,7 @@ def prepare(root: Path) -> Path:
 
 
 # Embedded sources keep this update installable from a phone with one upload.
-UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шаблоны ответов Cloudflare\n'
+UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.2 — все шаблоны ответов Cloudflare\n'
                        '\n'
                        '## Установка с телефона\n'
                        '\n'
@@ -88,7 +88,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                        'на исходный архив. Дождитесь успешной сборки и развёртывания Cloudflare.\n'
                        'Команды сборки и deploy прежние. Существующие настройки, тексты и предупреждения '
                        'сохраняются.\n'
-                       'Версию можно проверить по стандартной справке: «Guardian 2.5.1» (если help не '
+                       'Версию можно проверить по стандартной справке: «Guardian 2.5.2» (если help не '
                        'заменён).\n'
                        'Надёжная проверка возможностей: `/texts` показывает кнопки выбора шаблонов и стрелки '
                        'страниц.\n'
@@ -221,15 +221,46 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                        '\n'
                        '`/mute 8549615756 10m` выбирает указанный ID даже при ответе на сообщение\n'
                        'другого человека или бота. `/mute 10m` ответом на участника по-прежнему выбирает\n'
-                       'автора сообщения, на которое дан ответ. Формат остальных команд не изменён:\n'
-                       'у них ответ определяет цель, а аргументы служат причиной; для ID отправляй без '
-                       'ответа.\n'
+                       'автора сообщения, на которое дан ответ. В командах без причины /unmute, /unban, '
+                       '/unwarn, /resetwarns, /warnings числовой ID также имеет приоритет.\n'
+                       'Для /ban, /kick, /warn числовой ID отправляй без ответа, чтобы отличить его от '
+                       'причины, начинающейся с числа.\n'
                        '\n'
                        'Вместо общей ошибки защиты бот указывает ID цели и конкретную причину:\n'
                        'собственный аккаунт, этот бот, администратор/владелец группы или @ivan22350.\n'
                        'Права и защита администраторов не отключаются. Тексты новых ошибок доступны\n'
                        'в `/texts` под именами `error_target_self`, `error_target_bot`,\n'
                        '`error_target_admin`, `error_target_trusted`.\n'
+                       '\n'
+                       '## Username и выбор участника (2.5.2)\n'
+                       '\n'
+                       'Явный @username имеет приоритет над автором сообщения, на которое отвечает команда.\n'
+                       'Это работает для /mute, /unmute, /ban, /unban, /kick, /warn, /unwarn, /resetwarns и '
+                       '/warnings.\n'
+                       'Например, `/unmute @abamako999,` обрабатывается как `/unmute @abamako999`:\n'
+                       'знаки препинания в конце username допускаются, регистр букв не важен.\n'
+                       'Если ID не удалось подтвердить, команда НЕ переключается на автора ответа.\n'
+                       '\n'
+                       'Bot API требует числовой user_id для getChatMember и действий с участником.\n'
+                       'Поэтому бот запоминает связь username → ID из авторов сообщений, сообщений,\n'
+                       'на которые отвечают, и уведомлений о новых участниках. Список отдельный для каждой\n'
+                       'группы, хранится в существующей таблице ephemeral до 30 дней и обновляется из '
+                       'сообщений.\n'
+                       'Старую историю группы бот не загружает. Перед действием getChatMember проверяет,\n'
+                       'что у найденного ID всё ещё тот самый username; при переименовании действие '
+                       'отклоняется.\n'
+                       'Ошибка Telegram тоже не приводит к выбору другого участника.\n'
+                       '\n'
+                       'Если username неизвестен, ответь на старое сообщение нужного человека `/unmute`\n'
+                       'без аргументов либо используй числовой ID без ответа. Это работает и когда человек\n'
+                       'уже замучен и не может написать новое сообщение. После первого наблюдения username\n'
+                       'можно использовать команды с ним, пока Telegram подтверждает соответствие.\n'
+                       'Отображаемое имя и простое упоминание @username в тексте не используются для\n'
+                       'запоминания ID. Приватные чаты и группы не обмениваются этим списком.\n'
+                       '\n'
+                       'Права администраторов и @ivan22350, защита целей, редактор и премиум-эмодзи '
+                       'сохранены.\n'
+                       'Новый текст ошибки доступен в `/texts error_username_unknown`.\n'
                        '\n'
                        '## Каталог\n'
                        '\n'
@@ -342,7 +373,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                        '| `error_target_self` | `{uid}` |\n'
                        '| `error_target_bot` | `{uid}` |\n'
                        '| `error_target_admin` | `{uid}` |\n'
-                       '| `error_target_trusted` | `{uid}` |\n',
+                       '| `error_target_trusted` | `{uid}` |\n'
+                       '| `error_username_unknown` | `{username}` |\n',
  'schema.sql': 'CREATE TABLE IF NOT EXISTS settings(chat INTEGER PRIMARY KEY, value TEXT NOT NULL);\n'
                'CREATE TABLE IF NOT EXISTS warnings(chat INTEGER, user INTEGER, count INTEGER NOT NULL '
                'DEFAULT 0, PRIMARY KEY(chat,user));\n'
@@ -392,6 +424,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                            'InlineKeyboardMarkup,\n'
                            ')\n'
                            '\n'
+                           'from .usernames import Usernames, parse_username\n'
                            'from .editor import TextEditor\n'
                            'from .access import allowed_member, trusted_member\n'
                            'from .db import Database, PersistentFlood, PersistentCooldowns\n'
@@ -550,7 +583,14 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                            'ID.\n'
                            '        use_id = explicit_id and pieces and pieces[0].isascii() and '
                            'pieces[0].isdigit()\n'
-                           '        if reply and not use_id:\n'
+                           "        if pieces and pieces[0].startswith('@'):\n"
+                           '            username = parse_username(pieces[0])\n'
+                           '            uid = await Usernames(self.db, self.bot).resolve(m.chat.id, '
+                           'username)\n'
+                           '            if uid is None:\n'
+                           '                raise UserError("error_username_unknown", username=username)\n'
+                           '            rest = pieces[1] if len(pieces) > 1 else ""\n'
+                           '        elif reply and not use_id:\n'
                            '            if reply.sender_chat or not reply.from_user:\n'
                            '                raise UserError("error_target_channel")\n'
                            '            uid, rest = reply.from_user.id, args\n'
@@ -680,6 +720,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                            'as people.\n'
                            '        if m.sender_chat or not m.from_user or m.from_user.is_bot:\n'
                            '            return\n'
+                           '        await Usernames(self.db, self.bot).observe(m)\n'
                            '        if m.new_chat_members:\n'
                            '            s = await self.db.settings(m.chat.id)\n'
                            '            if s["welcome"]:\n'
@@ -856,7 +897,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                            '            await self.db.audit(chat, actor, None, "delete", "Вручную")\n'
                            '            return await self.say(m, "delete")\n'
                            '        uid, rest = await self.target(m, args, protect=cmd != "warnings", '
-                           'explicit_id=cmd == "mute")\n'
+                           'explicit_id=cmd in {"mute", "unmute", "unban", "unwarn", "resetwarns", '
+                           '"warnings"})\n'
                            '        if cmd == "warnings":\n'
                            '            return await self.say(m, "warnings", uid=uid, count=await '
                            'self.db.count(chat, uid))\n'
@@ -1283,7 +1325,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                              '}\n'
                              'TOKEN = re.compile(r"\\{([A-Za-z_][A-Za-z_0-9]*)\\}")\n'
                              '\n'
-                             "DEFAULT_TEXTS.update({'help': '🛡 Guardian 2.5.1 — модерация группы\\n'\n"
+                             "DEFAULT_TEXTS.update({'help': '🛡 Guardian 2.5.2 — модерация группы\\n'\n"
                              "         '\\n'\n"
                              "         'Команды можно писать с / или !. Русские варианты: !бан, !разбан, "
                              "!мут, !размут, !варн, '\n"
@@ -1303,7 +1345,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                              "         '/report причина — жалоба в группе\\n'\n"
                              "         '\\n'\n"
                              "         'Без ответа укажи числовой ID: /mute 123456789 30m причина.\\n'\n"
-                             "         '@username не используется для наказания: надёжнее ответ или ID.\\n'\n"
+                             "         '@username работает для знакомых боту участников; если он неизвестен, "
+                             "ответь на сообщение человека.\\n'\n"
                              "         '\\n'\n"
                              "         '/settings — кнопки настроек\\n'\n"
                              "         '/set warn_limit 3\\n'\n"
@@ -1332,7 +1375,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                              "         'Ссылки и пересылки разрешены. Фильтры не применяются к "
                              "администраторам и @ivan22350.\\n'\n"
                              "         'Работаю в супергруппах. /help — эта справка.',\n"
-                             " 'start': '🛡 Guardian 2.5.1 — модерация группы\\n'\n"
+                             " 'start': '🛡 Guardian 2.5.2 — модерация группы\\n'\n"
                              "          '\\n'\n"
                              "          'Команды можно писать с / или !. Русские варианты: !бан, !разбан, "
                              "!мут, !размут, !варн, '\n"
@@ -1352,8 +1395,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                              "          '/report причина — жалоба в группе\\n'\n"
                              "          '\\n'\n"
                              "          'Без ответа укажи числовой ID: /mute 123456789 30m причина.\\n'\n"
-                             "          '@username не используется для наказания: надёжнее ответ или "
-                             "ID.\\n'\n"
+                             "          '@username работает для знакомых боту участников; если он "
+                             "неизвестен, ответь на сообщение человека.\\n'\n"
                              "          '\\n'\n"
                              "          '/settings — кнопки настроек\\n'\n"
                              "          '/set warn_limit 3\\n'\n"
@@ -1535,6 +1578,13 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                              "    'error_target_trusted': 'Не применяю наказание к ID {uid}: Telegram "
                              'сообщает, что у этого участника username @ivan22350. Он защищён настройками '
                              "бота.',\n"
+                             '})\n'
+                             'DEFAULT_TEXTS.update({\n'
+                             "    'error_username_unknown': 'Не удалось подтвердить ID пользователя "
+                             '@{username}. Я никого не выбрал. Ответь на сообщение этого человека командой '
+                             'без @username, например /unmute, либо укажи его числовой ID. Username '
+                             'запоминается из сообщений, но перед действием всегда проверяется через '
+                             "Telegram.',\n"
                              '})\n'
                              'FIELDS.update({key: set(TOKEN.findall(text)) for key, text in '
                              'DEFAULT_TEXTS.items() if key not in FIELDS})\n'
@@ -1750,6 +1800,74 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                              'clients.\n'
                              '    return InlineKeyboardButton(text=plain(rich, 64), callback_data=data, '
                              'icon_custom_emoji_id=icon)\n',
+ 'src/guardian_cf/usernames.py': '"""Observed usernames are hints only; Telegram must verify them before '
+                                 'targeting."""\n'
+                                 'import re\n'
+                                 'import time\n'
+                                 '\n'
+                                 'from .telegram import TelegramAPIError\n'
+                                 '\n'
+                                 'TTL = 30 * 86400\n'
+                                 "PATTERN = re.compile(r'[A-Za-z0-9_]{1,64}\\Z')\n"
+                                 '\n'
+                                 '\n'
+                                 'def parse_username(token):\n'
+                                 "    value = token[1:].rstrip(',.;:!?') if token.startswith('@') else ''\n"
+                                 '    if not PATTERN.fullmatch(value):\n'
+                                 "        raise ValueError('Укажи @username без пробелов или числовой ID "
+                                 "участника.')\n"
+                                 '    return value.casefold()\n'
+                                 '\n'
+                                 '\n'
+                                 'def key(chat, username):\n'
+                                 "    return f'username:{chat}:{username}'\n"
+                                 '\n'
+                                 '\n'
+                                 'class Usernames:\n'
+                                 '    def __init__(self, db, bot):\n'
+                                 '        self.db, self.bot = db, bot\n'
+                                 '\n'
+                                 '    async def remember(self, chat, user):\n'
+                                 "        username = (user.username or '').casefold() if user else ''\n"
+                                 '        if not user or user.is_bot or not PATTERN.fullmatch(username):\n'
+                                 '            return\n'
+                                 '        now = int(time.time())\n'
+                                 "        await self.db.run('''INSERT INTO ephemeral VALUES(?,?,?) ON "
+                                 'CONFLICT(key)\n'
+                                 '            DO UPDATE SET value=excluded.value,expires=excluded.expires\n'
+                                 '            WHERE ephemeral.value<>excluded.value OR '
+                                 "ephemeral.expires<?''',\n"
+                                 '            key(chat,username), str(user.id), now+TTL, now+TTL-86400)\n'
+                                 '\n'
+                                 '    async def observe(self, m):\n'
+                                 '        await self.remember(m.chat.id, m.from_user)\n'
+                                 '        reply = m.reply_to_message\n'
+                                 '        if reply and not reply.sender_chat and reply.chat and '
+                                 'reply.chat.id == m.chat.id:\n'
+                                 '            await self.remember(m.chat.id, reply.from_user)\n'
+                                 '        for user in (m.new_chat_members or []):\n'
+                                 '            await self.remember(m.chat.id, user)\n'
+                                 '\n'
+                                 '    async def resolve(self, chat, username):\n'
+                                 "        row = await self.db.first('SELECT value FROM ephemeral WHERE key=? "
+                                 "AND expires>?',\n"
+                                 '                                  key(chat,username), int(time.time()))\n'
+                                 '        if not row:\n'
+                                 '            return None\n'
+                                 "        uid = int(row['value'])\n"
+                                 '        try:\n'
+                                 '            member = await self.bot.get_chat_member(chat, uid)\n'
+                                 '        except TelegramAPIError as exc:\n'
+                                 '            if exc.code != 400:\n'
+                                 '                raise\n'
+                                 '            return None\n'
+                                 '        user = member.user\n'
+                                 '        if (not user or user.id != uid or user.is_bot or\n'
+                                 "                (user.username or '').casefold() != username):\n"
+                                 "            await self.db.run('DELETE FROM ephemeral WHERE key=? AND "
+                                 "value=?',key(chat,username),str(uid))\n"
+                                 '            return None\n'
+                                 '        return uid\n',
  'tests/test_access.py': 'import pytest\n'
                          'from test_guardian import db, bot, update\n'
                          'from test_editor import API as EditorAPI, click\n'
@@ -2028,7 +2146,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                          "    await run(db,api,'/texts help')\n"
                          "    assert 'tm:edit:help' in str(sent(api)[-1]['reply_markup'])\n"
                          "    await click(db,api,'tm:preview:help',2)\n"
-                         "    assert 'Guardian 2.5.1' in sent(api)[-1]['text']\n"
+                         "    assert 'Guardian 2.5.2' in sent(api)[-1]['text']\n"
                          "    assert 'texts' not in await db.settings(-100123)\n"
                          '\n'
                          '\n'
@@ -2560,7 +2678,151 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шабло
                         '    parts = list(split_rich(rich))\n'
                         "    assert ''.join(p['text'] for p in parts) == rich['text']\n"
                         "    assert parts[1]['entities'] == [emoji(0)]\n"
-                        "    assert all(units(p['text']) <= 4096 for p in parts)\n"}
+                        "    assert all(units(p['text']) <= 4096 for p in parts)\n",
+ 'tests/test_usernames.py': 'import pytest\n'
+                            'from test_guardian import db, update\n'
+                            'from test_access import API as BaseAPI\n'
+                            'from test_texts import run, sent\n'
+                            'from guardian_cf.usernames import Usernames, key\n'
+                            'from guardian_cf.db import Database\n'
+                            'from guardian_cf.telegram import wrap, TelegramAPIError\n'
+                            'from guardian_cf.webhook import process_update\n'
+                            'from test_guardian import bot\n'
+                            '\n'
+                            'CHAT=-100123\n'
+                            'TARGET=8549615756\n'
+                            'OTHER=1311500781\n'
+                            '\n'
+                            '\n'
+                            'class API(BaseAPI):\n'
+                            '    def __init__(self):\n'
+                            '        super().__init__()\n'
+                            "        self.target_name='abamako999'\n"
+                            "        self.target_status='restricted'\n"
+                            '        self.target_error=None\n'
+                            '\n'
+                            '    async def __call__(self,method,params):\n'
+                            '        result=await super().__call__(method,params)\n'
+                            "        if method=='getChatMember' and params['user_id']==TARGET:\n"
+                            '            if self.target_error: raise TelegramAPIError(self.target_error)\n'
+                            "            return {'status':self.target_status,'is_member':True,\n"
+                            '                    '
+                            "'user':{'id':TARGET,'is_bot':False,'first_name':'Target','username':self.target_name}}\n"
+                            "        if method=='getChatMember' and params['user_id']==OTHER:\n"
+                            '            return '
+                            "{'status':'administrator','user':{'id':OTHER,'is_bot':False,'first_name':'Other','username':'otheradmin'}}\n"
+                            '        return result\n'
+                            '\n'
+                            '\n'
+                            "def person(uid=TARGET,username='abamako999',chat=CHAT):\n"
+                            "    msg=update('Old message',actor=uid)['message']\n"
+                            "    msg['from']['username']=username\n"
+                            "    msg['chat']['id']=chat\n"
+                            '    return msg\n'
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            'async def test_unknown_username_never_uses_reply_author(db):\n'
+                            '    api=API()\n'
+                            "    await run(db,api,'/unmute @abamako999,',reply=person(OTHER,'otheradmin'))\n"
+                            "    assert 'Не удалось подтвердить ID пользователя @abamako999' in "
+                            "sent(api)[-1]['text']\n"
+                            "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n"
+                            "    assert not any(m=='getChatMember' and p['user_id']==OTHER for m,p in "
+                            'api.calls)\n'
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            'async def '
+                            'test_known_username_wins_over_unrelated_reply_and_survives_restart(db):\n'
+                            '    api=API()\n'
+                            "    await Usernames(db,bot(api)).remember(CHAT,wrap(person()['from']))\n"
+                            "    await run(Database(db.binding),api,'/unmute "
+                            "@ABAMAKO999,',reply=person(OTHER,'otheradmin'))\n"
+                            "    calls=[p for m,p in api.calls if m=='restrictChatMember']\n"
+                            "    assert len(calls)==1 and calls[0]['user_id']==TARGET\n"
+                            "    assert all(calls[0]['permissions'].values())\n"
+                            "    assert not any(m=='getChatMember' and p['user_id']==OTHER for m,p in "
+                            'api.calls)\n'
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            'async def test_reply_learns_username_and_no_username_reply_unmute_works(db):\n'
+                            '    api=API()\n'
+                            "    await run(db,api,'/unmute @abamako999,',reply=person())\n"
+                            '    assert [p for m,p in api.calls if '
+                            "m=='restrictChatMember'][-1]['user_id']==TARGET\n"
+                            "    await run(db,api,'/unmute',number=2,reply=person())\n"
+                            '    assert [p for m,p in api.calls if '
+                            "m=='restrictChatMember'][-1]['user_id']==TARGET\n"
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            "@pytest.mark.parametrize('command,method',[\n"
+                            "    ('/mute @abamako999, 10m','restrictChatMember'),('/ban @abamako999 "
+                            "нарушение','banChatMember'),\n"
+                            "    ('/unban @abamako999,','unbanChatMember'),('/kick "
+                            "@abamako999','banChatMember'),\n"
+                            "    ('/warn @abamako999 причина',None),\n"
+                            '])\n'
+                            'async def test_username_moderation_commands(db,command,method):\n'
+                            "    api=API(); api.target_status='member'\n"
+                            "    await Usernames(db,bot(api)).remember(CHAT,wrap(person()['from']))\n"
+                            "    await run(db,api,command,actor=5,reply=person(OTHER,'otheradmin'))\n"
+                            '    if method:\n'
+                            "        assert [p for m,p in api.calls if m==method][-1]['user_id']==TARGET\n"
+                            '    else:\n'
+                            '        assert await db.count(CHAT,TARGET)==1\n'
+                            '        assert await db.count(CHAT,OTHER)==0\n'
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            "@pytest.mark.parametrize('variation',['renamed','expired','otherchat','api400','api403','api429'])\n"
+                            'async def '
+                            'test_unverified_cached_username_never_executes_or_falls_back(db,variation):\n'
+                            '    api=API(); names=Usernames(db,bot(api))\n'
+                            "    await names.remember(CHAT if variation!='otherchat' else "
+                            "-100456,wrap(person()['from']))\n"
+                            "    if variation=='renamed': api.target_name='newname'\n"
+                            "    if variation=='expired': await db.run('UPDATE ephemeral SET expires=0 WHERE "
+                            "key=?',key(CHAT,'abamako999'))\n"
+                            "    if variation.startswith('api'): api.target_error=int(variation[3:])\n"
+                            "    await run(db,api,'/unmute @abamako999,',reply=person(6,'unrelated'))\n"
+                            "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n"
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            'async def test_speaker_username_learned_and_privileges_not_bypassed(db):\n'
+                            '    api=API()\n'
+                            "    message=update('Hello',actor=TARGET)\n"
+                            "    message['message']['from']['username']='abamako999'\n"
+                            "    await process_update(message,db,bot(api),'guardbot')\n"
+                            "    assert (await db.first('SELECT value FROM ephemeral WHERE "
+                            "key=?',key(CHAT,'abamako999')))['value']==str(TARGET)\n"
+                            "    await run(db,api,'/unmute @abamako999,',number=2,actor=6)\n"
+                            "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n"
+                            "    assert 'доступна только' in sent(api)[-1]['text']\n"
+                            "    api.target_status='administrator'\n"
+                            "    await run(db,api,'/unmute @abamako999,',number=3,actor=1)\n"
+                            "    assert 'администратор' in sent(api)[-1]['text'] and str(TARGET) in "
+                            "sent(api)[-1]['text']\n"
+                            "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n"
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            'async def test_explicit_unmute_id_wins_over_reply(db):\n'
+                            '    api=API()\n'
+                            "    await run(db,api,f'/unmute {TARGET}',reply=person(OTHER,'otheradmin'))\n"
+                            '    assert [p for m,p in api.calls if '
+                            "m=='restrictChatMember'][-1]['user_id']==TARGET\n"
+                            '\n'
+                            '\n'
+                            '@pytest.mark.asyncio\n'
+                            "@pytest.mark.parametrize('token',['@','@@abamako999','@abamako999/other'])\n"
+                            'async def test_invalid_username_never_uses_reply(db,token):\n'
+                            '    api=API()\n'
+                            "    await run(db,api,'/unmute '+token,reply=person(6,'unrelated'))\n"
+                            "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n"}
 
 if __name__ == '__main__':
     prepare(Path(__file__).resolve().parent)
