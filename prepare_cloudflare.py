@@ -1,4 +1,4 @@
-"""Guardian Cloudflare update 2.5: admin/ivan22350 access, no ranks, text editor.
+"""Guardian Cloudflare update 2.5.1: explicit mute targets and precise protection errors.
 
 Keep the original companion ZIP. This file overlays the updated Python sources.
 
@@ -77,7 +77,7 @@ def prepare(root: Path) -> Path:
 
 
 # Embedded sources keep this update installable from a phone with one upload.
-UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблоны ответов Cloudflare\n'
+UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5.1 — все шаблоны ответов Cloudflare\n'
                        '\n'
                        '## Установка с телефона\n'
                        '\n'
@@ -88,7 +88,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                        'на исходный архив. Дождитесь успешной сборки и развёртывания Cloudflare.\n'
                        'Команды сборки и deploy прежние. Существующие настройки, тексты и предупреждения '
                        'сохраняются.\n'
-                       'Версию можно проверить по стандартной справке: «Guardian 2.5» (если help не '
+                       'Версию можно проверить по стандартной справке: «Guardian 2.5.1» (если help не '
                        'заменён).\n'
                        'Надёжная проверка возможностей: `/texts` показывает кнопки выбора шаблонов и стрелки '
                        'страниц.\n'
@@ -217,6 +217,20 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                        'Сохранённые пользовательские тексты справки не заменяются: при желании обнови\n'
                        'их через `/texts` или верни стандартную справку командой `/resettext help`.\n'
                        '\n'
+                       '## Исправление выбора цели 2.5.1\n'
+                       '\n'
+                       '`/mute 8549615756 10m` выбирает указанный ID даже при ответе на сообщение\n'
+                       'другого человека или бота. `/mute 10m` ответом на участника по-прежнему выбирает\n'
+                       'автора сообщения, на которое дан ответ. Формат остальных команд не изменён:\n'
+                       'у них ответ определяет цель, а аргументы служат причиной; для ID отправляй без '
+                       'ответа.\n'
+                       '\n'
+                       'Вместо общей ошибки защиты бот указывает ID цели и конкретную причину:\n'
+                       'собственный аккаунт, этот бот, администратор/владелец группы или @ivan22350.\n'
+                       'Права и защита администраторов не отключаются. Тексты новых ошибок доступны\n'
+                       'в `/texts` под именами `error_target_self`, `error_target_bot`,\n'
+                       '`error_target_admin`, `error_target_trusted`.\n'
+                       '\n'
                        '## Каталог\n'
                        '\n'
                        '| Имя | Подстановки |\n'
@@ -324,7 +338,11 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                        '| `editor_waiting` | — |\n'
                        '| `editor_draft` | `{key}` |\n'
                        '| `editor_expired` | — |\n'
-                       '| `editor_cancelled` | — |\n',
+                       '| `editor_cancelled` | — |\n'
+                       '| `error_target_self` | `{uid}` |\n'
+                       '| `error_target_bot` | `{uid}` |\n'
+                       '| `error_target_admin` | `{uid}` |\n'
+                       '| `error_target_trusted` | `{uid}` |\n',
  'schema.sql': 'CREATE TABLE IF NOT EXISTS settings(chat INTEGER PRIMARY KEY, value TEXT NOT NULL);\n'
                'CREATE TABLE IF NOT EXISTS warnings(chat INTEGER, user INTEGER, count INTEGER NOT NULL '
                'DEFAULT 0, PRIMARY KEY(chat,user));\n'
@@ -524,30 +542,46 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                            'False):\n'
                            '            raise UserError("error_bot_right", right=right)\n'
                            '\n'
-                           '    async def target(self, m, args, protect=True):\n'
+                           '    async def target(self, m, args, protect=True, explicit_id=False):\n'
                            '        reply = m.reply_to_message\n'
-                           '        if reply:\n'
+                           '        pieces = args.split(maxsplit=1)\n'
+                           '        # /mute <ID> <duration> is unambiguous because reply-style durations\n'
+                           '        # always carry m/h/d. A quoted message must not override that explicit '
+                           'ID.\n'
+                           '        use_id = explicit_id and pieces and pieces[0].isascii() and '
+                           'pieces[0].isdigit()\n'
+                           '        if reply and not use_id:\n'
                            '            if reply.sender_chat or not reply.from_user:\n'
                            '                raise UserError("error_target_channel")\n'
                            '            uid, rest = reply.from_user.id, args\n'
                            '        else:\n'
-                           '            pieces = args.split(maxsplit=1)\n'
-                           '            if not pieces or not pieces[0].isdigit() or not 0 < int(pieces[0]) < '
-                           '2**52:\n'
+                           '            if (not pieces or not pieces[0].isascii() or not '
+                           'pieces[0].isdigit()\n'
+                           '                    or len(pieces[0]) > 16 or not 0 < int(pieces[0]) < 2**52):\n'
                            '                raise UserError("error_target_required")\n'
                            '            uid, rest = int(pieces[0]), pieces[1] if len(pieces) > 1 else ""\n'
                            '        if protect:\n'
-                           '            if uid in {self.bot.id, m.from_user.id} or await '
-                           'self.is_admin(m.chat.id, uid):\n'
-                           '                raise UserError("error_protected")\n'
+                           '            if uid == m.from_user.id:\n'
+                           '                raise UserError("error_target_self", uid=uid)\n'
+                           '            if uid == self.bot.id:\n'
+                           '                raise UserError("error_target_bot", uid=uid)\n'
+                           '            member = await self.bot.get_chat_member(m.chat.id, uid)\n'
+                           '            if member.status in ADMINS:\n'
+                           '                raise UserError("error_target_admin", uid=uid)\n'
+                           '            if trusted_member(member, uid):\n'
+                           '                raise UserError("error_target_trusted", uid=uid)\n'
                            '        return uid, rest\n'
                            '\n'
                            '    async def mute(self, chat, uid, seconds):\n'
                            '        # Do not shorten an existing restriction or discard its custom '
                            'permissions.\n'
                            '        member = await self.bot.get_chat_member(chat, uid)\n'
-                           '        if allowed_member(member, uid) or uid == self.bot.id:\n'
-                           '            raise UserError("error_protected_member")\n'
+                           '        if uid == self.bot.id:\n'
+                           '            raise UserError("error_target_bot", uid=uid)\n'
+                           '        if member.status in ADMINS:\n'
+                           '            raise UserError("error_target_admin", uid=uid)\n'
+                           '        if trusted_member(member, uid):\n'
+                           '            raise UserError("error_target_trusted", uid=uid)\n'
                            '        if member.status == "restricted":\n'
                            '            raise UserError("error_already_restricted")\n'
                            '        if member.status in {"left", "kicked"}:\n'
@@ -821,7 +855,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                            '            await self.bot.delete_message(chat, m.reply_to_message.message_id)\n'
                            '            await self.db.audit(chat, actor, None, "delete", "Вручную")\n'
                            '            return await self.say(m, "delete")\n'
-                           '        uid, rest = await self.target(m, args, protect=cmd != "warnings")\n'
+                           '        uid, rest = await self.target(m, args, protect=cmd != "warnings", '
+                           'explicit_id=cmd == "mute")\n'
                            '        if cmd == "warnings":\n'
                            '            return await self.say(m, "warnings", uid=uid, count=await '
                            'self.db.count(chat, uid))\n'
@@ -1248,7 +1283,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                              '}\n'
                              'TOKEN = re.compile(r"\\{([A-Za-z_][A-Za-z_0-9]*)\\}")\n'
                              '\n'
-                             "DEFAULT_TEXTS.update({'help': '🛡 Guardian 2.5 — модерация группы\\n'\n"
+                             "DEFAULT_TEXTS.update({'help': '🛡 Guardian 2.5.1 — модерация группы\\n'\n"
                              "         '\\n'\n"
                              "         'Команды можно писать с / или !. Русские варианты: !бан, !разбан, "
                              "!мут, !размут, !варн, '\n"
@@ -1297,7 +1332,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                              "         'Ссылки и пересылки разрешены. Фильтры не применяются к "
                              "администраторам и @ivan22350.\\n'\n"
                              "         'Работаю в супергруппах. /help — эта справка.',\n"
-                             " 'start': '🛡 Guardian 2.5 — модерация группы\\n'\n"
+                             " 'start': '🛡 Guardian 2.5.1 — модерация группы\\n'\n"
                              "          '\\n'\n"
                              "          'Команды можно писать с / или !. Русские варианты: !бан, !разбан, "
                              "!мут, !размут, !варн, '\n"
@@ -1489,6 +1524,18 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                              "    DEFAULT_TEXTS[_key] += '\\n\\nУправление ботом: только администраторы "
                              "группы и @ivan22350. Ранги отключены.'\n"
                              '\n'
+                             'DEFAULT_TEXTS.update({\n'
+                             "    'error_target_self': 'Не применяю наказание: выбран ID {uid} — это "
+                             'аккаунт, отправивший команду. Ответь на сообщение нужного участника или укажи '
+                             "его ID.',\n"
+                             "    'error_target_bot': 'Не применяю наказание: выбран ID {uid} — это я, бот. "
+                             "Ответь на сообщение участника или укажи его ID.',\n"
+                             "    'error_target_admin': 'Не применяю наказание к ID {uid}: Telegram "
+                             "сообщает, что этот участник — администратор или владелец данной группы.',\n"
+                             "    'error_target_trusted': 'Не применяю наказание к ID {uid}: Telegram "
+                             'сообщает, что у этого участника username @ivan22350. Он защищён настройками '
+                             "бота.',\n"
+                             '})\n'
                              'FIELDS.update({key: set(TOKEN.findall(text)) for key, text in '
                              'DEFAULT_TEXTS.items() if key not in FIELDS})\n'
                              'FIELDS["help"] = set()\n'
@@ -1981,7 +2028,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                          "    await run(db,api,'/texts help')\n"
                          "    assert 'tm:edit:help' in str(sent(api)[-1]['reply_markup'])\n"
                          "    await click(db,api,'tm:preview:help',2)\n"
-                         "    assert 'Guardian 2.5' in sent(api)[-1]['text']\n"
+                         "    assert 'Guardian 2.5.1' in sent(api)[-1]['text']\n"
                          "    assert 'texts' not in await db.settings(-100123)\n"
                          '\n'
                          '\n'
@@ -2141,6 +2188,62 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.5 — все шаблон
                          '    assert await editor(db,api).load(-100123,1,None) is None\n'
                          "    await run(db,api,'/settings',5)\n"
                          "    assert 'tm:page:1' in str(sent(api)[-1]['reply_markup'])\n",
+ 'tests/test_mute_target.py': 'import pytest\n'
+                              'from test_guardian import db, update\n'
+                              'from test_access import API\n'
+                              'from test_texts import run, sent\n'
+                              '\n'
+                              'TARGET=8549615756\n'
+                              '\n'
+                              '\n'
+                              '@pytest.mark.asyncio\n'
+                              "@pytest.mark.parametrize('reply_actor',[None,1,999,5,42])\n"
+                              'async def test_explicit_mute_id_wins_over_quoted_sender(db,reply_actor):\n'
+                              '    api=API()\n'
+                              "    reply=update('Quoted message',actor=reply_actor)['message'] if "
+                              'reply_actor else None\n'
+                              "    await run(db,api,f'/mute {TARGET} 10m',actor=1,reply=reply)\n"
+                              "    calls=[p for m,p in api.calls if m=='restrictChatMember']\n"
+                              "    assert len(calls)==1 and calls[0]['user_id']==TARGET\n"
+                              "    assert f'ID {TARGET}' in sent(api)[-1]['text']\n"
+                              '\n'
+                              '\n'
+                              '@pytest.mark.asyncio\n'
+                              'async def '
+                              'test_reply_style_mute_still_works_and_numeric_ban_reason_not_a_target(db):\n'
+                              '    api=API()\n'
+                              "    reply=update('Person',actor=TARGET)['message']\n"
+                              "    await run(db,api,'/mute 10m нарушение',actor=5,reply=reply)\n"
+                              '    assert [p for m,p in api.calls if '
+                              "m=='restrictChatMember'][-1]['user_id']==TARGET\n"
+                              "    await run(db,api,'/ban 3 нарушения',number=2,actor=5,reply=reply)\n"
+                              '    assert [p for m,p in api.calls if '
+                              "m=='banChatMember'][-1]['user_id']==TARGET\n"
+                              "    assert '3 нарушения' in sent(api)[-1]['text']\n"
+                              '\n'
+                              '\n'
+                              '@pytest.mark.asyncio\n'
+                              "@pytest.mark.parametrize('uid,reason',[(1,'аккаунт, отправивший'),(999,'я, "
+                              "бот'),(2,'администратор'),(5,'username @ivan22350')])\n"
+                              'async def test_precise_denial_identifies_selected_target(db,uid,reason):\n'
+                              '    api=API()\n'
+                              '    s=await db.settings(-100123)\n'
+                              "    s['texts']={'error_protected':{'text':'Old ambiguous "
+                              "error','entities':[]}}\n"
+                              '    await db.save_settings(-100123,s)\n'
+                              "    await run(db,api,f'/mute {uid} 10m',actor=1)\n"
+                              "    assert str(uid) in sent(api)[-1]['text']\n"
+                              "    assert reason in sent(api)[-1]['text']\n"
+                              "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n"
+                              '\n'
+                              '\n'
+                              '@pytest.mark.asyncio\n'
+                              "@pytest.mark.parametrize('target',['0','99999999999999999999999999999'])\n"
+                              'async def test_invalid_explicit_id_never_falls_back_to_reply(db,target):\n'
+                              '    api=API()\n'
+                              "    await run(db,api,f'/mute {target} "
+                              "10m',actor=1,reply=update(actor=TARGET)['message'])\n"
+                              "    assert not any(m=='restrictChatMember' for m,_ in api.calls)\n",
  'tests/test_texts.py': 'import pytest\n'
                         '\n'
                         'from test_guardian import Telegram, bot, db, update\n'
