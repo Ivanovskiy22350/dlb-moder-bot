@@ -1,4 +1,4 @@
-"""Guardian Cloudflare update 2.8: Russian commands, pinning, command cleanup and global maintenance.
+"""Guardian Cloudflare update 2.8.1: target name placeholders in moderation templates.
 
 Keep the original companion ZIP. This file overlays the updated Python sources.
 
@@ -111,7 +111,27 @@ def prepare_resolver(root: Path) -> Path:
 
 
 # Embedded sources keep this update installable from a phone with one upload.
-UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация и MTProto\n'
+UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8.1 — модерация и MTProto\n'
+                       '\n'
+                       '## Имя участника в наказаниях (2.8.1)\n'
+                       '\n'
+                       'В шаблонах mute, unmute, ban, unban, kick, warn, automute, unwarn,\n'
+                       'resetwarns, warnings и warnings_self доступна подстановка `{name}`.\n'
+                       'Это имя и фамилия участника, к которому относится действие, не администратора.\n'
+                       'Работает при выборе по ID, @username и ответом на сообщение, а также\n'
+                       'в редакторе с кнопками, в предпросмотре и вместе с премиум-эмодзи.\n'
+                       'Если имя отсутствует, используется @username, а если профиль недоступен — ID.\n'
+                       'Существующие тексты и подстановки сохраняются.\n'
+                       '\n'
+                       'Примеры:\n'
+                       '```\n'
+                       'текст мут {name} получил мут {duration}. Причина: {reason}\n'
+                       'текст бан {name} забанен {duration}. Причина: {reason}\n'
+                       'текст варн {name}: предупреждение {count}/{limit}. {reason}\n'
+                       '```\n'
+                       '\n'
+                       'Замени prepare_cloudflare.py в GitHub и дождись развёртывания основного\n'
+                       'Worker. Новые секреты и изменения базы для этой правки не нужны.\n'
                        '\n'
                        '## Закрепление, русские команды и общий перерыв (2.8)\n'
                        '\n'
@@ -18650,7 +18670,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                            'from .editor import TextEditor\n'
                            'from .access import allowed_member, trusted_member\n'
                            'from .db import Database, PersistentFlood, PersistentCooldowns\n'
-                           'from .texts import (FIELDS, PREVIEW, prepared, extract, validate, render,\n'
+                           'from .texts import (FIELDS, PREVIEW, TARGET_NAME_TEMPLATES, prepared, extract, '
+                           'validate, render,\n'
                            '                    template, deliver, units, join_rich, split_rich, plain, '
                            'join_lines, template_button)\n'
                            'from .policy import (ALIASES, SETTING_ALIASES, BOOL_KEYS, LIMITS, Cooldowns, '
@@ -18676,6 +18697,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                            '        self.bot, self.db, self.username = bot, db, username\n'
                            '        self.resolver = resolver\n'
                            '        self.maintenance_password = maintenance_password\n'
+                           '        self.target_users = {}\n'
                            '        self.flood, self.cooldowns = PersistentFlood(db), '
                            'PersistentCooldowns(db)\n'
                            '        self.locks = WeakValueDictionary()\n'
@@ -18690,6 +18712,10 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                            '    async def say(self, m, template_key, suffix="", method=None, '
                            'reply_markup=None, **values):\n'
                            '        s = await self.db.settings(m.chat.id)\n'
+                           '        if template_key in TARGET_NAME_TEMPLATES and "{name}" in template(s, '
+                           'template_key)["text"]:\n'
+                           '            uid = values.get("uid", m.from_user.id if m.from_user else None)\n'
+                           '            values["name"] = await self.target_name(m, uid)\n'
                            '        rich = prepared(s, template_key, values)\n'
                            '        if suffix:\n'
                            '            rich = join_rich(rich, suffix if isinstance(suffix, dict) else '
@@ -18700,6 +18726,27 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                            '        for part in split_rich(rich):\n'
                            '            result = await deliver(method or m.answer, part, **kwargs)\n'
                            '        return result\n'
+                           '\n'
+                           '    async def target_name(self, m, uid):\n'
+                           '        # Reuse the verified target captured BEFORE banning/removing them.\n'
+                           '        user = self.target_users.get((m.chat.id, uid))\n'
+                           '        if user is None:\n'
+                           '            reply = m.reply_to_message\n'
+                           '            candidates = [m.from_user]\n'
+                           '            if reply and reply.chat and reply.chat.id == m.chat.id and not '
+                           'reply.sender_chat:\n'
+                           '                candidates.append(reply.from_user)\n'
+                           '            user = next((u for u in candidates if u and u.id == uid), None)\n'
+                           '        if user is None:\n'
+                           '            with suppress(TelegramAPIError):\n'
+                           '                member = await self.bot.get_chat_member(m.chat.id, uid)\n'
+                           '                if member.user and member.user.id == uid:\n'
+                           '                    user = member.user\n'
+                           '        if user:\n'
+                           '            return user.full_name.strip() or ("@" + user.username if '
+                           'user.username else f"ID {uid}")\n'
+                           '        # A missing profile must not turn a completed punishment into an error.\n'
+                           '        return f"ID {uid}"\n'
                            '\n'
                            '    async def alert(self, q, key, show_alert=False, **values):\n'
                            '        s = await self.db.settings(q.message.chat.id) if q.message else {}\n'
@@ -18842,6 +18889,8 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                            '            if uid == self.bot.id:\n'
                            '                raise UserError("error_target_bot", uid=uid)\n'
                            '            member = await self.bot.get_chat_member(m.chat.id, uid)\n'
+                           '            if member.user and member.user.id == uid:\n'
+                           '                self.target_users[(m.chat.id, uid)] = member.user\n'
                            '            if member.status in ADMINS:\n'
                            '                raise UserError("error_target_admin", uid=uid)\n'
                            '            if trusted_member(member, uid):\n'
@@ -20457,7 +20506,7 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                              "соответствие. Никакие наказания не применялись.',\n"
                              '})\n'
                              '\n'
-                             "DEFAULT_TEXTS.update({'help': '🛡 Guardian 2.8 — команды на русском\\n\\nБез "
+                             "DEFAULT_TEXTS.update({'help': '🛡 Guardian 2.8.1 — команды на русском\\n\\nБез "
                              'префикса, с / или !: помощь, старт, правила, пинг, ид, проверка, настройки, '
                              'фильтры, жалоба, журнал, статистика.\\n\\nОтветом на сообщение или с ID / '
                              '@username:\\nмут [10м] причина; размут; бан [2д] причина; разбан; кик; варн '
@@ -20466,28 +20515,31 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                              '— закрепить сообщение ответом на него. Только с точкой, без уведомления всей '
                              'группы.\\n\\nТексты и правила:\\nтексты — меню с кнопками и '
                              'страницами\\nзадатьправила новый текст\\nприветствие новый текст\\nизменить '
-                             'новый текст — ответом на сообщение бота\\nтекст правила новый '
-                             'текст\\nпросмотртекста правила\\nсброситьтекст правила\\nэмодзи — ID '
-                             'премиум-эмодзи; отмена — выйти из редактирования.\\n\\nНастройки:\\nпараметр '
-                             'лимитварнов 3\\nпараметр времямута 60\\nпараметр лимитфлуда 7\\nпараметр '
-                             'окнофлуда 10\\nслово добавить спам; слово удалить спам; слово список\\nнайти '
-                             '@username — проверить ID; мтпрото — проверить связь.\\n\\nТехнический перерыв '
-                             'во всех чатах:\\nперерыв вкл ПАРОЛЬ\\nперерыв выкл ПАРОЛЬ\\nперерыв статус '
-                             'ПАРОЛЬ\\nТакже можно .перерыв. Пароль задаётся секретом '
-                             'MAINTENANCE_PASSWORD.\\nВо время перерыва бот реагирует только на управление '
-                             'перерывом.\\n\\nУправление — только администраторам и @ivan22350. Боту нужны '
-                             'права удаления, блокировки и закрепления. После обработки команда удаляется, '
-                             "ответ остаётся. Английские команды с / и ! сохранены.', 'start': '🛡 Guardian "
-                             '2.8 — команды на русском\\n\\nБез префикса, с / или !: помощь, старт, правила, '
-                             'пинг, ид, проверка, настройки, фильтры, жалоба, журнал, '
-                             'статистика.\\n\\nОтветом на сообщение или с ID / @username:\\nмут [10м] '
-                             'причина; размут; бан [2д] причина; разбан; кик; варн причина; разварн; преды; '
-                             'сбросварнов.\\nБез срока мут/бан навсегда. Каждый варн — на 7 дней.\\nудалить '
-                             '— удалить сообщение, на которое отвечаешь.\\n.пин — закрепить сообщение '
-                             'ответом на него. Только с точкой, без уведомления всей группы.\\n\\nТексты и '
-                             'правила:\\nтексты — меню с кнопками и страницами\\nзадатьправила новый '
-                             'текст\\nприветствие новый текст\\nизменить новый текст — ответом на сообщение '
-                             'бота\\nтекст правила новый текст\\nпросмотртекста правила\\nсброситьтекст '
+                             'новый текст — ответом на сообщение бота\\nтекст правила новый текст\\nтекст '
+                             'мут {name} получил мут {duration}. {reason}\\n{name} — имя участника, к '
+                             'которому применяется наказание.\\nпросмотртекста правила\\nсброситьтекст '
+                             'правила\\nэмодзи — ID премиум-эмодзи; отмена — выйти из '
+                             'редактирования.\\n\\nНастройки:\\nпараметр лимитварнов 3\\nпараметр времямута '
+                             '60\\nпараметр лимитфлуда 7\\nпараметр окнофлуда 10\\nслово добавить спам; '
+                             'слово удалить спам; слово список\\nнайти @username — проверить ID; мтпрото — '
+                             'проверить связь.\\n\\nТехнический перерыв во всех чатах:\\nперерыв вкл '
+                             'ПАРОЛЬ\\nперерыв выкл ПАРОЛЬ\\nперерыв статус ПАРОЛЬ\\nТакже можно .перерыв. '
+                             'Пароль задаётся секретом MAINTENANCE_PASSWORD.\\nВо время перерыва бот '
+                             'реагирует только на управление перерывом.\\n\\nУправление — только '
+                             'администраторам и @ivan22350. Боту нужны права удаления, блокировки и '
+                             'закрепления. После обработки команда удаляется, ответ остаётся. Английские '
+                             "команды с / и ! сохранены.', 'start': '🛡 Guardian 2.8.1 — команды на "
+                             'русском\\n\\nБез префикса, с / или !: помощь, старт, правила, пинг, ид, '
+                             'проверка, настройки, фильтры, жалоба, журнал, статистика.\\n\\nОтветом на '
+                             'сообщение или с ID / @username:\\nмут [10м] причина; размут; бан [2д] причина; '
+                             'разбан; кик; варн причина; разварн; преды; сбросварнов.\\nБез срока мут/бан '
+                             'навсегда. Каждый варн — на 7 дней.\\nудалить — удалить сообщение, на которое '
+                             'отвечаешь.\\n.пин — закрепить сообщение ответом на него. Только с точкой, без '
+                             'уведомления всей группы.\\n\\nТексты и правила:\\nтексты — меню с кнопками и '
+                             'страницами\\nзадатьправила новый текст\\nприветствие новый текст\\nизменить '
+                             'новый текст — ответом на сообщение бота\\nтекст правила новый текст\\nтекст '
+                             'мут {name} получил мут {duration}. {reason}\\n{name} — имя участника, к '
+                             'которому применяется наказание.\\nпросмотртекста правила\\nсброситьтекст '
                              'правила\\nэмодзи — ID премиум-эмодзи; отмена — выйти из '
                              'редактирования.\\n\\nНастройки:\\nпараметр лимитварнов 3\\nпараметр времямута '
                              '60\\nпараметр лимитфлуда 7\\nпараметр окнофлуда 10\\nслово добавить спам; '
@@ -20512,6 +20564,12 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                              "'Укажи один username: найти @username. Команда только проверяет ID.'})\n"
                              'FIELDS.update({key: set(TOKEN.findall(text)) for key, text in '
                              'DEFAULT_TEXTS.items() if key not in FIELDS})\n'
+                             'TARGET_NAME_TEMPLATES = {\n'
+                             '    "mute", "unmute", "ban", "unban", "kick", "warn", "automute",\n'
+                             '    "unwarn", "resetwarns", "warnings", "warnings_self",\n'
+                             '}\n'
+                             'for key in TARGET_NAME_TEMPLATES:\n'
+                             '    FIELDS[key].add("name")\n'
                              'FIELDS["help"] = set()\n'
                              'FIELDS["start"] = set()\n'
                              '\n'
@@ -22263,6 +22321,134 @@ UPDATED_SOURCES = {'README_TEXTS_RU.md': '# Guardian 2.8 — модерация 
                            "    assert 'missing_api_hash' in sent(api)[-1]['text']\n"
                            "    assert not any(m in {'restrictChatMember','banChatMember'} for m,_ in "
                            'api.calls)\n',
+ 'tests/test_target_names.py': 'import pytest\n'
+                               '\n'
+                               'from test_guardian import Telegram, db, bot, update\n'
+                               'from test_texts import run, sent, emoji\n'
+                               'from test_editor import API as EditorAPI, click, draft, editor\n'
+                               'from guardian_cf.telegram import Message, TelegramAPIError\n'
+                               'from guardian_cf.app import Guardian\n'
+                               'from guardian_cf.texts import FIELDS, TARGET_NAME_TEMPLATES, units, '
+                               'validate\n'
+                               'from guardian_cf.usernames import Usernames\n'
+                               '\n'
+                               'CHAT = -100123\n'
+                               "NAME = 'Алексей 🙂 <b>{uid}</b> Петров'\n"
+                               '\n'
+                               '\n'
+                               'class NamesAPI(Telegram):\n'
+                               '    removed = False\n'
+                               '\n'
+                               '    async def __call__(self, method, params):\n'
+                               '        result = await super().__call__(method, params)\n'
+                               "        if method == 'getChatMember' and params['user_id'] == 6:\n"
+                               '            if self.removed:\n'
+                               '                raise TelegramAPIError(400)\n'
+                               "            result['user'] = {'id':6, 'first_name':'Алексей 🙂 "
+                               "<b>{uid}</b>',\n"
+                               "                              'last_name':'Петров', "
+                               "'username':'target_user', 'is_bot':False}\n"
+                               "        if method == 'banChatMember':\n"
+                               '            self.removed = True\n'
+                               '        return result\n'
+                               '\n'
+                               '\n'
+                               '@pytest.mark.asyncio\n'
+                               "@pytest.mark.parametrize('cmd', "
+                               "['mute','unmute','ban','unban','kick','warn','unwarn','resetwarns','warnings'])\n"
+                               'async def test_target_name_for_all_manual_commands(db, cmd):\n'
+                               '    api=NamesAPI()\n'
+                               "    await run(db,api,f'/settext {cmd} {{name}} / {{uid}} 🔇',\n"
+                               "              entities=[emoji(units(f'/settext {cmd} {{name}} / {{uid}} "
+                               "'))])\n"
+                               "    await run(db,api,f'/{cmd} 6',number=2)\n"
+                               '    result=sent(api)[-1]\n'
+                               "    assert result['text']==NAME+' / 6 🔇'\n"
+                               "    assert result['entities']==[emoji(units(NAME+' / 6 '))]\n"
+                               "    assert 'parse_mode' not in result\n"
+                               '\n'
+                               '\n'
+                               '@pytest.mark.asyncio\n'
+                               'async def '
+                               'test_username_and_explicit_id_use_correct_person_despite_reply(db):\n'
+                               '    api=NamesAPI()\n'
+                               "    await run(db,api,'текст мут {name}')\n"
+                               '    target = await bot(api).get_chat_member(CHAT,6)\n'
+                               '    await Usernames(db,bot(api)).remember(CHAT,target.user)\n'
+                               "    reply=update('unrelated',actor=7)['message']\n"
+                               "    reply['from']['first_name']='Не тот участник'\n"
+                               "    for n,command in enumerate(['мут @target_user','мут 6'],2):\n"
+                               '        await run(db,api,command,number=n,reply=reply)\n'
+                               "        assert sent(api)[-1]['text']==NAME\n"
+                               '\n'
+                               '\n'
+                               '@pytest.mark.asyncio\n'
+                               'async def test_reply_name_without_profile_and_missing_profile_fallback(db):\n'
+                               '    api=Telegram()\n'
+                               "    await run(db,api,'текст бан {name}')\n"
+                               "    reply=update('target',actor=6)['message']\n"
+                               "    reply['from'].update(first_name='Олег',last_name='Иванов')\n"
+                               "    await run(db,api,'бан',number=2,reply=reply)\n"
+                               "    assert sent(api)[-1]['text']=='Олег Иванов'\n"
+                               "    await run(db,api,'бан 6',number=3)\n"
+                               "    assert sent(api)[-1]['text']=='ID 6'\n"
+                               '\n'
+                               '\n'
+                               '@pytest.mark.asyncio\n'
+                               'async def test_automute_uses_offender_name(db):\n'
+                               '    api=Telegram()\n'
+                               "    await run(db,api,'текст automute {name}')\n"
+                               '    settings=await db.settings(CHAT)\n'
+                               "    settings['flood_limit']=3\n"
+                               '    await db.save_settings(CHAT,settings)\n'
+                               '    for n in range(2,6):\n'
+                               "        await run(db,api,'hello',number=n,actor=6)\n"
+                               "    assert sent(api)[-1]['text']=='Test'\n"
+                               "    assert any(method=='restrictChatMember' for method,_ in api.calls)\n"
+                               '\n'
+                               '\n'
+                               '@pytest.mark.asyncio\n'
+                               'async def test_editor_accepts_name_preview_and_save(db):\n'
+                               '    api=EditorAPI()\n'
+                               "    await click(db,api,'tm:view:mute',number=1)\n"
+                               "    outputs=[p['text'] for method,p in api.calls if method in "
+                               "{'editMessageText','sendMessage'}]\n"
+                               "    assert '{name}' in outputs[-1]\n"
+                               "    await click(db,api,'tm:edit:mute',number=2)\n"
+                               "    await draft(db,api,text='{name} получил мут {duration}',number=3)\n"
+                               "    assert any('Участник получил мут на 10 мин.' == p['text'] for p in "
+                               'sent(api))\n'
+                               '    state=await editor(db,api).load(CHAT,1,None)\n'
+                               "    await click(db,api,'tm:save:'+state['nonce'],number=4)\n"
+                               "    assert (await db.settings(CHAT))['texts']['mute']['text']=='{name} "
+                               "получил мут {duration}'\n"
+                               '\n'
+                               '\n'
+                               '@pytest.mark.asyncio\n'
+                               'async def test_name_lookup_error_and_wrong_id_do_not_spoil_result(db):\n'
+                               '    class BadProfileAPI(Telegram):\n'
+                               '        async def __call__(self,method,params):\n'
+                               '            result=await super().__call__(method,params)\n'
+                               "            if method=='getChatMember':\n"
+                               "                result['user']={'id':777,'first_name':'Wrong person'}\n"
+                               '            return result\n'
+                               '    api=BadProfileAPI()\n'
+                               "    await run(db,api,'текст разбан {name}')\n"
+                               "    await run(db,api,'разбан 6',number=2)\n"
+                               "    assert sent(api)[-1]['text']=='ID 6'\n"
+                               '    api=NamesAPI();api.removed=True\n'
+                               "    app=Guardian(bot(api),db,'guardbot')\n"
+                               '    await '
+                               "app.say(Message(update()['message'],bot(api)),'unban',uid=6,reason='')\n"
+                               "    assert sent(api)[-1]['text']=='ID 6'\n"
+                               '\n'
+                               '\n'
+                               'def test_name_allowed_only_in_supported_templates():\n'
+                               '    for key in TARGET_NAME_TEMPLATES:\n'
+                               "        assert 'name' in FIELDS[key]\n"
+                               "        validate(key,{'text':'{name}','entities':[]})\n"
+                               '    with pytest.raises(ValueError):\n'
+                               "        validate('mute',{'text':'{unknown}','entities':[]})\n",
  'tests/test_texts.py': 'import pytest\n'
                         '\n'
                         'from test_guardian import Telegram, bot, db, update\n'
